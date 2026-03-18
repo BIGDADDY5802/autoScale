@@ -1,70 +1,54 @@
 pipeline {
     agent any
+
     environment {
-        AWS_REGION = 'us-east-1' 
+        AWS_REGION = 'us-east-1'
     }
+
     stages {
-        stage('Set AWS Credentials') {
-            steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'AWS_SECRET_ACCESS_KEY' 
-                ]]) {
-                    sh '''
-                    echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
-                    aws sts get-caller-identity
-                    '''
-                }
-            }
-        }
-        stage('Checkout Code') {
-            steps {
-                git branch: 'main', url: 'https://github.com/WookieWAF/autoScale' 
-            }
-        }
-        stage('Initialize Terraform') {
+
+        stage('Verify AWS Identity') {
             steps {
                 sh '''
-                terraform init
+                    echo "Confirming instance profile credentials..."
+                    aws sts get-caller-identity
                 '''
             }
         }
-        stage('Plan Terraform') {
+
+        stage('Checkout Code') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    sh '''
-                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                    terraform plan -out=tfplan
-                    '''
-                }
+                git branch: 'main', url: 'https://github.com/BIGDADDY5802/autoScale'
             }
         }
+
+        stage('Initialize Terraform') {
+            steps {
+                sh 'terraform init -input=false'
+            }
+        }
+
+        stage('Plan Terraform') {
+            steps {
+                sh 'terraform plan -input=false -out=tfplan'
+            }
+        }
+
         stage('Apply Terraform') {
             steps {
                 input message: "Approve Terraform Apply?", ok: "Deploy"
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    sh '''
-                    export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                    terraform apply -auto-approve tfplan
-                    '''
-                }
+                sh 'terraform apply -input=false -auto-approve tfplan'
             }
         }
     }
+
     post {
         success {
-            echo 'Terraform deployment completed successfully!'
+            echo 'Deployment successful.'
         }
         failure {
-            echo 'Terraform deployment failed!'
+            echo 'Deployment failed. Check stage output above.'
+            sh 'find . -name "*.tfplan" -delete 2>/dev/null || true'
         }
     }
 }
